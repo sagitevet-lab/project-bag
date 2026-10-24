@@ -1,0 +1,124 @@
+CHANGES: FIRST VERSION -> CURRENT VERSION (INCLUDING UNCOMMITTED WORK)
+
+
+WHAT THE PROJECT WAS AT THE START
+---------------------------------
+A single JavaFX desktop app: one window per user, all state held in memory, a
+hardcoded database password, database failures silently swallowed, and a
+genetic algorithm that ran on the UI thread (freezing the window for minutes).
+Lesson requests lived only in memory, optimised schedules were never saved
+anywhere, and the student side had a "View my schedule" button that did
+nothing. Configuration, validation, and the week/hour window were scattered and
+partly inconsistent.
+
+
+THE BIG CHANGE: DESKTOP APP -> SERVER + WEB CLIENT
+--------------------------------------------------
+- The desktop app was removed entirely and split into a Spring Boot backend and
+  a React browser client.
+- All domain concepts (students, instructors, lessons, schedules, the genetic
+  algorithm) were moved to the server, made instance-based instead of global
+  static state, and wired up for concurrent use.
+- The JavaFX screens became seven browser routes, with sign-in kept in a browser
+  session context instead of being smuggled through static fields between
+  windows.
+- Routes are role-guarded: students can't reach instructor pages and vice versa.
+- Configuration moved to environment variables, with defaults that keep a local
+  clone working.
+- A real schema is created automatically on startup; tables were added for the
+  pending request queue and the saved timetable.
+- The request queue now persists across restarts instead of dying with the
+  process.
+- Generated schedules are persisted instead of being thrown away.
+- The algorithm now runs in the background: the run request returns immediately,
+  and the client polls a status endpoint. It refuses a second run while one is
+  going and refuses a run when nothing is queued.
+- Errors now surface as proper HTTP errors with readable messages instead of
+  being silently swallowed; the old "empty screen looks like no users" failure
+  mode is gone.
+- A bug in the instructor-existence check (it queried the wrong table) was
+  fixed.
+- Several old crash traps were fixed: the zero-lesson crossover crash, and the
+  null preferred-time crash.
+- The old inconsistencies didn't carry over: the schedule grid now shows
+  Sunday-Friday only, starts at 07:00 consistently, and no longer reserves an
+  empty Saturday column.
+- Validation messages were kept word-for-word so the UI reads the same as the
+  old alerts.
+- A proper run guide and a rewritten architecture/notes document were added.
+
+
+AFTER THE SPLIT (COMMITTED REFINEMENTS)
+---------------------------------------
+- The "Run scheduler" control moved off the public home page onto the instructor
+  dashboard, since generating schedules is the teacher's job. It gained live
+  status, a queue/saved/last-finished summary, and the button disables while
+  running.
+- Signing out was fixed so it doesn't bounce through the sign-in page first;
+  session clear and navigation now happen together.
+- The driving-test date on the request form is actually used now: it is sent to
+  the server, stored on the student, and therefore actually influences the
+  algorithm. Previously it was collected and ignored, so half the fitness score
+  was always zero.
+- Requests are validated against the window the scheduler can actually use: no
+  Saturdays, and starts between 07:00 and 18:00 only.
+- The schedule view can now walk backwards and forwards a week at a time, with
+  Previous / This week / Next week, and it opens on the week containing today.
+- Lesson requests are restricted to next week only, since that's the only week
+  the algorithm places lessons in. Enforced both in the form and on the server,
+  with dates clamped in the picker.
+- The README was updated to reflect the health endpoint and the new request
+  field.
+
+
+MORE CHANGES
+-------------------
+
+Scheduling behaves differently now
+- A run no longer wipes and replaces an instructor's timetable. It adds to it.
+  Lessons from earlier runs, and lessons for students not in the current run,
+  stay put.
+- The only row ever replaced is one produced by the exact same request (same
+  instructor, student, preferred time, and priority), so retrying a run
+  refreshes that lesson instead of duplicating it.
+- Before evolving, the algorithm treats every already-booked start time as
+  reserved, so the new schedule can't double-book an instructor's existing hour
+  - and that includes the requesting student's existing bookings.
+- A run can be scoped to one instructor instead of everyone. The instructor
+  dashboard runs only its own queue, and only its own queue is cleared
+  afterwards.
+
+Request rules are stricter
+- A student can request at most five lessons per week, counting lessons already
+  booked or already waiting in the queue.
+- Priority levels are 1-5 and each may be used only once per student.
+- A student cannot request a date and time they already have pending or already
+  booked.
+- All of this is enforced in the form (used priorities and hours are marked and
+  disabled) and again on the server.
+- The free-form time input became a dropdown of whole hours only, because the
+  algorithm never starts a lesson on a half hour.
+- The form's lesson-count field respects the remaining weekly allowance,
+  auto-assigns a free priority to new rows, and cleans itself up when left blank
+  or invalid.
+
+Pages reorganised
+- The queued-requests table moved off the public home page onto the instructor
+  dashboard, filtered to that instructor.
+- The dashboard also tells the page to refresh the queue as soon as a run
+  finishes (whether it succeeded or failed), so the table is never stale.
+- The home page now offers role-aware shortcuts: dashboard, my schedule, and
+  request lessons for students.
+- The navigation bar gained Dashboard and (for students) Request lessons.
+- The empty schedule page now offers students "Request lessons" instead of a
+  scheduler link.
+
+Schedule grid presentation
+- Hovering or focusing a lesson now shows a proper tooltip with its time,
+  duration, and priority, replacing the plain browser title text.
+- Lessons became keyboard-focusable and carry a descriptive label for screen
+  readers.
+
+Documentation
+- The notes and README were updated to describe additive scheduling and the
+  whole-hour time picker.
